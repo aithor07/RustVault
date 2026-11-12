@@ -40,7 +40,7 @@ pub fn menu() -> () {
     println!("=== RustVault - Tu Gestor de Confianza ===");
 
     loop {
-        let choice: String = read_input(format!("Elige una opción: {} ->", Options::print_options()).as_ref());
+        let choice: String = read_input(format!("Elige una opción: {} -> ", Options::print_options()).as_ref());
         let choice: Option<i8> = choice.trim().parse().ok();
 
         if choice.is_none() {
