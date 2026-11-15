@@ -1,8 +1,13 @@
 [package]
 name = "RustVault"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
 colored = "3.1.1"
-rusqlite = "0.42.0"
+rusqlite = { version = "0.42.0", features = ["bundled"] }
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+rand = "0.8"
+rpassword = "7"
+zeroize = "1"

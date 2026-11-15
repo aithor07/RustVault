@@ -1,90 +1,239 @@
-use crate::{helpers::*, structs::Vault};
+use crate::{
+    credential::{Credential, CredentialSummary, NewCredential},
+    terminal::read_input,
+    vault::Vault,
+};
+use colored::Colorize;
 
-enum Options {
-    Add_Cred = 1,
-    Find_Cred = 2,
-    Del_Cred = 3,
-    Ls_Cred = 4,
-    Sort_Cred = 5,
-    Exit = 6
+const MENU: &str = r#"
+1. Añade una credencial.
+2. Encuentra una credencial.
+3. Elimina una credencial.
+4. Muestra las credenciales almacenadas.
+5. Muestra las credenciales ordenadas por servicio.
+6. Salir.
+7. Mostrar una contraseña (advertencia de seguridad).
+"#;
+
+enum OptionMenu {
+    AddCredential,
+    FindCredential,
+    DeleteCredential,
+    ListCredentials,
+    SortCredentials,
+    Exit,
+    RevealPassword,
 }
 
-impl Options {
-    pub fn print_options() -> String {
-        format!(r#"
-        1. Añade una credencial.
-        2. Encuentra una credencial.
-        3. Elimina una credencial.
-        4. Muestra las credenciales almacenadas.
-        5. Ordena las credenciales por servicio (alfabético).
-        6. Salir.
-        "#)
-    }
-
-    pub fn from_number(number: i8) -> Option<Self> {
+impl OptionMenu {
+    fn from_number(number: u8) -> Option<Self> {
         match number {
-            1 => Some(Self::Add_Cred),
-            2 => Some(Self::Find_Cred),
-            3 => Some(Self::Del_Cred),
-            4 => Some(Self::Ls_Cred),
-            5 => Some(Self::Sort_Cred),
+            1 => Some(Self::AddCredential),
+            2 => Some(Self::FindCredential),
+            3 => Some(Self::DeleteCredential),
+            4 => Some(Self::ListCredentials),
+            5 => Some(Self::SortCredentials),
             6 => Some(Self::Exit),
-            _ => None
+            7 => Some(Self::RevealPassword),
+            _ => None,
         }
-
     }
 }
 
-pub fn menu() -> () {
-    let mut vault: Vault = Vault::new();
-    println!("=== RustVault - Tu Gestor de Confianza ===");
-
+pub fn menu(vault: &Vault) {
+    println!(
+        "{}",
+        "=== RustVault - Tu Gestor de Confianza ===".cyan().bold()
+    );
     loop {
-        let choice: String = read_input(format!("Elige una opción: {} -> ", Options::print_options()).as_ref());
-        let choice: Option<i8> = choice.trim().parse().ok();
-
-        if choice.is_none() {
-            println!("Valor introducido no valido, escribe el numero de la opcion que quieras.");
-            continue;
-        }
-
-        let option = Options::from_number(choice.unwrap());
-        if option.is_none(){
-            println!("La opcion seleccionada no existe.");
-            continue;
-        }
-        match option.unwrap() {
-            Options::Add_Cred => add_cred(&mut vault),
-            Options::Find_Cred => {
-                loop {
-                    let service = read_input("Introduce el servicio de la credencial que quieres encontrar o 0 para cancelar: ");
-                    let service = service.trim();
-                    if service == "0"{
-                        break;
-                    }
-                    let cred = find_cred(&vault, &service);
-
-
-                    if cred == "Credencial no encontrada"{
-                        println!("Asegurate de que escribiste correctamente el servicio.");
-                        continue;
-                    }
-                    println!("{cred}");
-                    break;
-                }
-
-            },
-            Options::Del_Cred => {
-                let servicio = read_input("Introduce el servicio cuya credencial quieras borrar: ");
-                println!("{}", del_cred(&mut vault, &servicio));
-        },
-        Options::Ls_Cred => println!("{}", ls_cred(&vault)),
-        Options::Sort_Cred => println!("{}", sort_cred(&mut vault)),
-        Options::Exit => {
-            println!("Hasta Luego");
-            break;
-        },
+        println!("{MENU}");
+        let choice = match read_input("Elige una opción: ") {
+            Ok(choice) => choice,
+            Err(error) => {
+                eprintln!("{} {error}", "Error leyendo entrada:".red());
+                break;
+            }
         };
-        
+        let number = match choice.parse::<u8>() {
+            Ok(number) => number,
+            Err(_) => {
+                println!("{}", "Debes introducir un número válido.".red());
+                continue;
+            }
+        };
+        let option = match OptionMenu::from_number(number) {
+            Some(option) => option,
+            None => {
+                println!("{}", "La opción seleccionada no existe.".red());
+                continue;
+            }
+        };
+        match option {
+            OptionMenu::AddCredential => add_credential(vault),
+            OptionMenu::FindCredential => find_credential(vault),
+            OptionMenu::DeleteCredential => delete_credential(vault),
+            OptionMenu::ListCredentials => list_credentials(vault),
+            OptionMenu::SortCredentials => list_sorted_credentials(vault),
+            OptionMenu::RevealPassword => reveal_password(vault),
+            OptionMenu::Exit => {
+                println!("Hasta luego.");
+                break;
+            }
+        }
+    }
+}
+
+fn ask(prompt: &str) -> Option<String> {
+    match read_input(prompt) {
+        Ok(input) => Some(input),
+        Err(error) => {
+            eprintln!("{} {error}", "Error leyendo entrada:".red());
+            None
+        }
+    }
+}
+
+fn add_credential(vault: &Vault) {
+    let Some(service) = ask("Servicio: ") else {
+        return;
+    };
+    let Some(username) = ask("Usuario o correo: ") else {
+        return;
+    };
+    // No introducir la contraseña mediante read_input: aparecería en pantalla.
+    let password = match rpassword::prompt_password("Contraseña (no visible): ") {
+        Ok(password) => password,
+        Err(error) => {
+            eprintln!("{} {error}", "Error leyendo contraseña:".red());
+            return;
+        }
+    };
+    if service.is_empty() || username.is_empty() {
+        println!("{}", "Servicio y usuario no pueden estar vacíos.".red());
+        return;
+    }
+    let credential = NewCredential::new(service, username, password);
+    match vault.add_credential(&credential) {
+        Ok(()) => println!("{}", "Credencial añadida con éxito.".green()),
+        Err(error) => eprintln!("{} {error}", "Error al añadir la credencial:".red()),
+    }
+}
+
+fn find_credential(vault: &Vault) {
+    let Some(service) = ask("Servicio: ") else {
+        return;
+    };
+    let Some(username) = ask("Usuario o correo: ") else {
+        return;
+    };
+    if service.is_empty() || username.is_empty() {
+        println!("{}", "Servicio y usuario no pueden estar vacíos.".red());
+        return;
+    }
+    match vault.find_credential(&service, &username) {
+        Ok(Some(credential)) => print_credential(&credential),
+        Ok(None) => println!("{}", "No se encontró esa credencial.".yellow()),
+        Err(error) => eprintln!("{} {error}", "Error al buscar la credencial:".red()),
+    }
+}
+
+fn delete_credential(vault: &Vault) {
+    let Some(mode) = ask("Eliminar por (1) ID o (2) servicio y usuario: ") else {
+        return;
+    };
+    let result = match mode.as_str() {
+        "1" => {
+            let Some(id_input) = ask("ID de la credencial: ") else {
+                return;
+            };
+            let id = match id_input.parse::<i64>() {
+                Ok(id) if id > 0 => id,
+                _ => {
+                    println!("{}", "Debes introducir un ID positivo válido.".red());
+                    return;
+                }
+            };
+            vault.delete_credential(Some(id), "", "")
+        }
+        "2" => {
+            let Some(service) = ask("Servicio: ") else {
+                return;
+            };
+            let Some(username) = ask("Usuario o correo: ") else {
+                return;
+            };
+            if service.is_empty() || username.is_empty() {
+                println!("{}", "Servicio y usuario no pueden estar vacíos.".red());
+                return;
+            }
+            vault.delete_credential(None, &service, &username)
+        }
+        _ => {
+            println!("{}", "Modo de eliminación no válido.".red());
+            return;
+        }
+    };
+    match result {
+        Ok(true) => println!("{}", "Credencial eliminada con éxito.".green()),
+        Ok(false) => println!("{}", "No se encontró esa credencial.".yellow()),
+        Err(error) => eprintln!("{} {error}", "Error al eliminar la credencial:".red()),
+    }
+}
+
+fn list_credentials(vault: &Vault) {
+    match vault.list_all_credentials() {
+        Ok(credentials) => print_credentials(&credentials),
+        Err(error) => eprintln!("{} {error}", "Error al listar credenciales:".red()),
+    }
+}
+
+fn list_sorted_credentials(vault: &Vault) {
+    match vault.list_credentials_sorted() {
+        Ok(credentials) => print_credentials(&credentials),
+        Err(error) => eprintln!("{} {error}", "Error al ordenar credenciales:".red()),
+    }
+}
+
+fn print_credentials(credentials: &[CredentialSummary]) {
+    if credentials.is_empty() {
+        println!("No hay credenciales almacenadas.");
+        return;
+    }
+    println!("Total de credenciales: {}", credentials.len());
+    for credential in credentials {
+        println!(
+            "ID: {} | Servicio: {} | Usuario: {} | Creada: {}",
+            credential.id, credential.service, credential.username, credential.created_at
+        );
+    }
+}
+
+fn print_credential(credential: &Credential) {
+    println!(
+        "ID: {} | Servicio: {} | Usuario: {} | Creada: {}",
+        credential.id, credential.service, credential.username, credential.created_at
+    );
+    println!("Contraseña: [oculta; utiliza la opción 7 para mostrarla]");
+}
+
+fn reveal_password(vault: &Vault) {
+    let Some(service) = ask("Servicio: ") else {
+        return;
+    };
+    let Some(username) = ask("Usuario o correo: ") else {
+        return;
+    };
+    println!("{}", "Advertencia: la contraseña aparecerá en la terminal y podría quedar en su historial visual.".yellow());
+    let Some(confirm) = ask("¿Mostrarla? (escribe SI): ") else {
+        return;
+    };
+    if confirm != "SI" {
+        println!("Operación cancelada.");
+        return;
+    }
+    match vault.find_credential(&service, &username) {
+        Ok(Some(credential)) => println!("Contraseña: {}", credential.password.as_str()),
+        Ok(None) => println!("{}", "No se encontró esa credencial.".yellow()),
+        Err(error) => eprintln!("{} {error}", "Error al descifrar:".red()),
     }
 }
